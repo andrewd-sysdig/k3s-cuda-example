@@ -35,18 +35,26 @@ lspci |grep -e VGA -ie NVIDIA
 ```
 sudo dnf -y update
 ```
+
+## Disable firewalld
+https://docs.k3s.io/advanced?_highlight=firewall#red-hat-enterprise-linux--centos--fedora
+```
+sudo systemctl disable firewalld --now
+```
+
 ## Reboot for new kernel to take effect
 ```
 sudo reboot
 ```
 # Install Kernel header/tools (needed for nvidia to build kernel module)
-## https://learn.microsoft.com/en-us/azure/virtual-machines/linux/n-series-driver-setup#centos-or-red-hat-enterprise-linux
+https://learn.microsoft.com/en-us/azure/virtual-machines/linux/n-series-driver-setup#centos-or-red-hat-enterprise-linux
 ```
 $ sudo dnf -y install kernel kernel-tools kernel-headers kernel-devel
 ```
 
 # Install nvidia driver 
-## Add extra packages for enterprise linux - https://access.redhat.com/solutions/3358
+## Add extra packages for enterprise linux
+https://access.redhat.com/solutions/3358
 ```
 sudo rpm -Uvh https://dl.fedoraproject.org/pub/epel/epel-release-latest-8.noarch.rpm
 ```
