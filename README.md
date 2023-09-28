@@ -1,8 +1,8 @@
-# k3s build with cuda support
-Single node 
+# k3s single node build with cuda support
 
 # Provision VM
 For this example I'm using an Azure VM Size: Standard NC6s v3 (6 vcpus, 112 GiB memory) which has a Tesla-V100-PCIE-16GB with RHEL8
+***Note: Make sure you disable secure boot or the nvidia drivers won't load***
 
 ```
 cat /etc/os-release
@@ -25,13 +25,20 @@ REDHAT_SUPPORT_PRODUCT="Red Hat Enterprise Linux"
 REDHAT_SUPPORT_PRODUCT_VERSION="8.6"
 ```
 
-# Confirm NVIDIA card detected
+## Download this repo
 ```
-lspci |grep -e VGA -ie NVIDIA
-0001:00:00.0 3D controller: NVIDIA Corporation GV100GL [Tesla V100 PCIe 16GB] (rev a1)
+wget https://github.com/andrewd-sysdig/k3s-cuda-example/archive/refs/heads/main.zip
+unzip main.zip
+cd k3s-cuda-example-main
 ```
 
-# Update OS & Kernel to latest
+## Confirm NVIDIA card detected
+```
+lspci |grep -e VGA -ie NVIDIA
+$ 0001:00:00.0 3D controller: NVIDIA Corporation GV100GL [Tesla V100 PCIe 16GB] (rev a1)
+```
+
+# Update OS & Kernel, disable firewall, install kernel headers
 ```
 sudo dnf -y update
 ```
@@ -46,10 +53,10 @@ sudo systemctl disable firewalld --now
 ```
 sudo reboot
 ```
-# Install Kernel header/tools (needed for nvidia to build kernel module)
+## Install Kernel header/tools (needed for nvidia to build kernel module)
 https://learn.microsoft.com/en-us/azure/virtual-machines/linux/n-series-driver-setup#centos-or-red-hat-enterprise-linux
 ```
-$ sudo dnf -y install kernel kernel-tools kernel-headers kernel-devel
+sudo dnf -y install kernel kernel-tools kernel-headers kernel-devel
 ```
 
 # Install nvidia driver 
@@ -66,13 +73,20 @@ sudo dnf -y install dkms
 
 ## Finally install the cuda-drivers - would be nice to do headless but haven't figured out how in RHEL
 ```
+sudo wget https://developer.download.nvidia.com/compute/cuda/repos/rhel8/x86_64/cuda-rhel8.repo -O /etc/yum.repos.d/cuda-rhel8.repo
 sudo dnf -y install cuda-drivers
 ```
 
 ## Confirm drivers are working ok
+*** Note: if this doesn't work, check you have secure boot disabled in Azure***
 ```
 nvidia-smi --query-gpu=gpu_name --format=csv,noheader --id=0 | sed -e 's/ /-/g'
-Tesla-V100-PCIE-16GB
+$ Tesla-V100-PCIE-16GB
+```
+
+## Install nvidia container runtime that will be used by containerd/k3s
+```
+sudo dnf -y install nvidia-container-toolkit
 ```
 
 # Install and setup Kubernetes
@@ -81,15 +95,19 @@ Tesla-V100-PCIE-16GB
 curl -ksL get.k3s.io | sh -
 ```
 
-## Confirm nvidia has been added as a conatiner runtime class to containerd
+## Set the default container runtime to be nvidia-container-runtime
 ```
-sudo grep nvidia /var/lib/rancher/k3s/agent/etc/containerd/config.toml
-[plugins."io.containerd.grpc.v1.cri".containerd.runtimes."nvidia"]
-[plugins."io.containerd.grpc.v1.cri".containerd.runtimes."nvidia".options]
-  BinaryName = "/usr/bin/nvidia-container-runtime"
+sudo awk '/disable_snapshot_annotations = true/ {print; print "  default_runtime_name = \"nvidia\""; next} 1' /var/lib/rancher/k3s/agent/etc/containerd/config.toml> /var/lib/rancher/k3s/agent/etc/containerd/config.toml.tmpl
 ```
 
-## Install and setup kubectl, autocomplete and k alias for user
+Confirm nvidia has been added as the default container runtime
+
+```
+sudo grep default_runtime_name /var/lib/rancher/k3s/agent/etc/containerd/config.toml
+$  default_runtime_name = "nvidia"
+```
+
+## Install and setup helm, kubectl, autocomplete and k alias for user
 ```
 mkdir ~/.kube
 sudo cp /etc/rancher/k3s/k3s.yaml ~/.kube/config
@@ -100,22 +118,20 @@ echo "source <(kubectl completion bash)" >> ~/.bashrc
 echo "alias k=kubectl" >> ~/.bashrc 
 echo "complete -o default -F __start_kubectl k" >> ~/.bashrc
 source ~/.bashrc
-```
-
-## Install helm
-```
 curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 ```
 
-## Apply new nvidia RuntimeClass 
-```
-k apply -f nvidia-runtimeclass.yaml
-```
-
 ## Create nvidia device plugin
-***Note: this is different to the one on the nvidia github as it adds the runtimeclass into it which is needed to make it use the nvidia conatiner runtime***
 ```
 kubectl apply -f nvidia-device-plugin.yaml
+```
+
+Wait for the above pod to run and then check the description of the node for the nvidia.com/gpu capactiy/allocatable item in the node description
+```
+kubectl describe node |grep gpu
+  nvidia.com/gpu:     1
+  nvidia.com/gpu:     1
+  nvidia.com/gpu     0           0
 ```
 
 ## Test with nvidia smi command
